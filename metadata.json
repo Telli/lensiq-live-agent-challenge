@@ -1,0 +1,9 @@
+{
+  "name": "LensIQ",
+  "description": "See the world. Hear its story. Explore its past.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
