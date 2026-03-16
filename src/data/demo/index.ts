@@ -1,4 +1,4 @@
-import { Place, Session, SavedPlace, TranscriptMessage } from '../types';
+import { Place, Session, SavedPlace, TranscriptMessage } from '../../types';
 
 export const mockPlaces: Place[] = [
   {

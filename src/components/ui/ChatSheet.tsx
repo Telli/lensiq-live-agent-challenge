@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { BottomSheet } from './BottomSheet';
 import { Button } from './Button';
 import { Send, Sparkles, Bot, User, Zap, Brain, Search } from 'lucide-react';
-import { aiService } from '../../services/aiService';
+import { chatService } from '../../services/session/chat.service';
+import { searchService } from '../../services/ai/search.service';
 
 interface Message {
   id: string;
@@ -11,7 +12,7 @@ interface Message {
   isThinking?: boolean;
 }
 
-export function ChatSheet({ isOpen, onClose, contextImage }: { isOpen: boolean, onClose: () => void, contextImage?: string }) {
+export function ChatSheet({ isOpen, onClose, contextImage, initialQuery }: { isOpen: boolean, onClose: () => void, contextImage?: string, initialQuery?: string }) {
   const [messages, setMessages] = useState<Message[]>([
     { id: '1', role: 'ai', content: 'Hi! I am LensIQ. Ask me anything about what you see or where you are.' }
   ]);
@@ -26,6 +27,12 @@ export function ChatSheet({ isOpen, onClose, contextImage }: { isOpen: boolean, 
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    if (isOpen && initialQuery) {
+      setInput(initialQuery);
+    }
+  }, [isOpen, initialQuery]);
+
   const handleSend = async () => {
     if (!input.trim()) return;
     
@@ -35,20 +42,18 @@ export function ChatSheet({ isOpen, onClose, contextImage }: { isOpen: boolean, 
     setIsTyping(true);
 
     try {
-      // If the user asks a complex question, we use thinking mode.
-      // For simplicity, we'll just use the standard chat, but we can pass a flag if needed.
       const isComplex = userMsg.content.toLowerCase().includes('why') || userMsg.content.toLowerCase().includes('how');
-      
+      const imageBase64 = contextImage?.includes(',')
+        ? contextImage.split(',')[1]
+        : contextImage;
+
       let responseText = '';
       if (useSearch) {
-        responseText = await aiService.search(userMsg.content);
-      } else if (useFastMode) {
-        responseText = await aiService.fastResponse(userMsg.content);
-      } else if (contextImage && messages.length === 1) {
-         // First message with image context
-         responseText = await aiService.explainImage(contextImage, userMsg.content);
+        responseText = await searchService.search(userMsg.content);
       } else {
-         responseText = await aiService.chat(userMsg.content, useThinking || isComplex);
+        responseText = await chatService.chat(userMsg.content, useFastMode ? false : useThinking || isComplex, {
+          imageBase64,
+        });
       }
 
       setMessages(prev => [...prev, { id: Date.now().toString(), role: 'ai', content: responseText }]);
@@ -61,7 +66,7 @@ export function ChatSheet({ isOpen, onClose, contextImage }: { isOpen: boolean, 
 
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose}>
-      <div className="flex flex-col h-[70vh]">
+      <div className="flex flex-col h-[78vh] sm:h-[70vh]">
         <div className="flex items-center space-x-2 mb-4 pb-4 border-b border-zinc-800">
           <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center">
             <Sparkles className="w-4 h-4 text-black" />

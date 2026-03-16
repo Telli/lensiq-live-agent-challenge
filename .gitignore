@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+SUBMISSION.md
+DEMO_SCRIPT.md
+.vscode/
+.kiro/
+patch.md
+prompt

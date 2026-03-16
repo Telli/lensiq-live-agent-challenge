@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Camera, Clock, MapPin, Sparkles } from 'lucide-react';
 import { Button } from '@/src/components/ui/Button';
+import { SplashScreen } from '../components/onboarding/SplashScreen';
 
 const FEATURES = [
   { icon: Camera, label: 'Explain' },
@@ -12,6 +13,11 @@ const FEATURES = [
 
 export function LandingScreen() {
   const navigate = useNavigate();
+  const [showSplash, setShowSplash] = React.useState(true);
+
+  if (showSplash) {
+    return <SplashScreen onComplete={() => setShowSplash(false)} />;
+  }
 
   return (
     <div className="flex flex-col min-h-screen bg-zinc-950 text-zinc-50 overflow-hidden relative">
@@ -52,7 +58,7 @@ export function LandingScreen() {
               className="w-full text-lg h-14"
               onClick={() => navigate('/explore')}
             >
-              Try Demo
+              Open Explore
             </Button>
           </div>
         </motion.div>

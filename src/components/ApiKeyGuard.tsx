@@ -1,58 +1,60 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
+import { AlertTriangle, RefreshCw, Server } from 'lucide-react';
 import { Button } from '@/src/components/ui/Button';
-import { Key } from 'lucide-react';
+import { AppShellProvider, useAppShell } from '@/src/hooks/useAppShell';
 
-export function ApiKeyGuard({ children }: { children: React.ReactNode }) {
-  const [hasKey, setHasKey] = useState<boolean | null>(null);
+function AppShellGate({ children }: { children: React.ReactNode }) {
+  const { capabilities, isLoading, error, refresh } = useAppShell();
 
-  useEffect(() => {
-    const checkKey = async () => {
-      try {
-        // @ts-ignore
-        const keySelected = await window.aistudio.hasSelectedApiKey();
-        setHasKey(keySelected);
-      } catch (e) {
-        setHasKey(false);
-      }
-    };
-    checkKey();
-  }, []);
-
-  const handleSelectKey = async () => {
-    try {
-      // @ts-ignore
-      await window.aistudio.openSelectKey();
-      // Assume success to mitigate race condition
-      setHasKey(true);
-    } catch (e) {
-      console.error("Failed to select key", e);
-    }
-  };
-
-  if (hasKey === null) {
-    return <div className="h-screen w-full bg-zinc-950 flex items-center justify-center text-white">Loading...</div>;
+  if (isLoading) {
+    return <div className="h-screen w-full bg-zinc-950 flex items-center justify-center text-white">Loading LensIQ…</div>;
   }
 
-  if (!hasKey) {
+  if (error || !capabilities) {
     return (
       <div className="h-screen w-full bg-zinc-950 flex flex-col items-center justify-center text-white p-6 text-center">
         <div className="w-20 h-20 bg-zinc-900 rounded-full flex items-center justify-center mb-6">
-          <Key className="w-10 h-10 text-white" />
+          <Server className="w-10 h-10 text-white" />
         </div>
-        <h1 className="text-3xl font-bold mb-4">API Key Required</h1>
+        <h1 className="text-3xl font-bold mb-4">Backend Unavailable</h1>
         <p className="text-zinc-400 mb-8 max-w-md">
-          To use advanced features like Veo Video Generation and Pro Image Generation, you must select a paid Google Cloud API key.
-          <br /><br />
-          <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-indigo-400 underline">
-            Learn more about billing
-          </a>
+          LensIQ now depends on the backend for capabilities, data providers, and authentication.
+          Start the API server and verify your environment configuration.
         </p>
-        <Button size="lg" onClick={handleSelectKey}>
-          Select API Key
+        <Button size="lg" onClick={() => refresh()}>
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Retry
         </Button>
       </div>
     );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {capabilities.limitations.length > 0 && (
+        <div className="fixed top-4 left-4 right-4 z-50 pointer-events-auto">
+          <div className="bg-amber-500/10 backdrop-blur-xl border border-amber-500/30 rounded-2xl p-4 shadow-2xl flex items-start gap-3">
+            <div className="bg-amber-500/20 p-2 rounded-full shrink-0">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-amber-500 font-semibold text-sm mb-1">Limited Configuration</h3>
+              <p className="text-amber-200/70 text-xs leading-relaxed">
+                {capabilities.limitations.join(' ')}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {children}
+    </>
+  );
+}
+
+export function ApiKeyGuard({ children }: { children: React.ReactNode }) {
+  return (
+    <AppShellProvider>
+      <AppShellGate>{children}</AppShellGate>
+    </AppShellProvider>
+  );
 }

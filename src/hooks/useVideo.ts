@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { aiService } from '../services/aiService';
+import { videoAnalysisService } from '../services/media/videoAnalysis.service';
 
 export function useVideo() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -10,7 +10,7 @@ export function useVideo() {
     try {
       setIsAnalyzing(true);
       setError(null);
-      const result = await aiService.analyzeVideo(videoBase64, mimeType, prompt);
+      const result = await videoAnalysisService.analyzeVideo(videoBase64, mimeType, prompt);
       setAnalysis(result);
     } catch (err) {
       console.error("Error analyzing video:", err);

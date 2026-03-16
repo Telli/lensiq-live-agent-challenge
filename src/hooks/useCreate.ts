@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { aiService } from '../services/aiService';
+import { imageGenerationService } from '../services/media/imageGeneration.service';
 
 export function useCreate() {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -10,7 +10,7 @@ export function useCreate() {
     try {
       setIsGenerating(true);
       setError(null);
-      const url = await aiService.generateHighQualityImage(prompt, size);
+      const url = await imageGenerationService.generateHighQualityImage(prompt, size);
       setImageUrl(url);
     } catch (err) {
       console.error("Error generating image:", err);

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { aiService } from '../services/aiService';
+import { videoGenerationService } from '../services/media/videoGeneration.service';
 
 export function useAnimate() {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -10,7 +10,7 @@ export function useAnimate() {
     try {
       setIsGenerating(true);
       setError(null);
-      const url = await aiService.generateVideo(imageBase64, prompt);
+      const url = await videoGenerationService.generateVideo(imageBase64, prompt);
       setVideoUrl(url);
     } catch (err) {
       console.error("Error generating video:", err);
