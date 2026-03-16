@@ -12,3 +12,4 @@ DEMO_SCRIPT.md
 .kiro/
 patch.md
 prompt
+src/server/.data/
