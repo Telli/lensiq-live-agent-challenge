@@ -16,8 +16,8 @@ export function useTimeTravelMode(timeTravel: TimeTravelViewModel | null) {
     if (timeTravel.status === 'loading') {
       return {
         status: 'loading' as const,
-        heading: timeTravel.title || 'Reconstructing this view',
-        message: 'LensIQ is reconstructing this view through time…',
+        heading: timeTravel.title || 'Preparing time travel',
+        message: 'LensIQ is preparing a time-travel view from the current scene.',
         summary: timeTravel.sceneSummary,
       };
     }

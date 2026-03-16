@@ -7,6 +7,11 @@ export const env = {
   apiPort: Number(process.env.PORT || 3001),
   databaseUrl: process.env.DATABASE_URL || '',
   geminiApiKey: process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '',
+  geminiChatModel: process.env.GEMINI_CHAT_MODEL || '',
+  geminiReasoningModel: process.env.GEMINI_REASONING_MODEL || '',
+  geminiLiveModel: process.env.GEMINI_LIVE_MODEL || '',
+  geminiImageModel: process.env.GEMINI_IMAGE_MODEL || '',
+  geminiVideoModel: process.env.GEMINI_VIDEO_MODEL || '',
   googleMapsApiKey:
     process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY || '',
   googleClientId: process.env.GOOGLE_CLIENT_ID || '',

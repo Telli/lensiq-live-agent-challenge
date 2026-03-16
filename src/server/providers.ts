@@ -37,11 +37,75 @@ const PLACE_DETAILS_MASK = [
 
 const ROUTES_MASK = 'routes.distanceMeters,routes.duration';
 
-const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
-const CHAT_MODEL = 'gemini-3-flash-preview';
-const REASONING_MODEL = 'gemini-3-pro-preview';
-const IMAGE_MODEL = 'gemini-3-pro-image-preview';
-const VIDEO_MODEL = 'veo-3.1-fast-generate-preview';
+const LIVE_MODEL = env.geminiLiveModel || 'gemini-2.5-flash-native-audio-preview-12-2025';
+const CHAT_MODEL = env.geminiChatModel || 'gemini-2.5-flash';
+const REASONING_MODEL = env.geminiReasoningModel || 'gemini-2.5-flash';
+const IMAGE_MODEL = env.geminiImageModel || 'gemini-2.5-flash-image';
+const VIDEO_MODEL = env.geminiVideoModel || 'veo-3.1-fast-generate-preview';
+const PLACE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const placeResolutionCache = new Map<string, { expiresAt: number; value: PlaceSummary | null }>();
+const placeDetailsCache = new Map<string, { expiresAt: number; value: PlaceDetails | null }>();
+const nearbyPlacesCache = new Map<string, { expiresAt: number; value: PlaceSummary[] }>();
+let placesRateLimitUntilMs = 0;
+
+function readCache<T>(cache: Map<string, { expiresAt: number; value: T }>, key: string) {
+  const entry = cache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() >= entry.expiresAt) {
+    cache.delete(key);
+    return undefined;
+  }
+  return entry.value;
+}
+
+function writeCache<T>(cache: Map<string, { expiresAt: number; value: T }>, key: string, value: T) {
+  cache.set(key, {
+    value,
+    expiresAt: Date.now() + PLACE_CACHE_TTL_MS,
+  });
+  return value;
+}
+
+function roundCoordinate(value: number, precision = 3) {
+  return Number(value.toFixed(precision));
+}
+
+function makeCoordinateKey(origin?: Coordinates) {
+  if (!origin) return 'global';
+  return `${roundCoordinate(origin.lat)}:${roundCoordinate(origin.lng)}`;
+}
+
+function parseRetryDelayMs(message: string) {
+  const retryMatch = message.match(/retry in\s+([\d.]+)s/i);
+  if (!retryMatch) {
+    return 60_000;
+  }
+  return Math.max(15_000, Math.ceil(Number(retryMatch[1]) * 1000));
+}
+
+function isPlacesRateLimitError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /(429|rate limit|quota|resource_exhausted|maximum limit)/i.test(message);
+}
+
+function guardPlacesRateLimit() {
+  if (Date.now() < placesRateLimitUntilMs) {
+    const retrySeconds = Math.ceil((placesRateLimitUntilMs - Date.now()) / 1000);
+    const error = new Error(`Google Places is temporarily rate-limited. Retry in ${retrySeconds}s.`);
+    (error as Error & { status?: number }).status = 429;
+    throw error;
+  }
+}
+
+function notePlacesRateLimit(error: unknown) {
+  if (!isPlacesRateLimitError(error)) {
+    return;
+  }
+  const message = error instanceof Error ? error.message : String(error || '');
+  const delayMs = parseRetryDelayMs(message);
+  placesRateLimitUntilMs = Date.now() + delayMs;
+}
 
 function makeCitation(partial: Omit<Citation, 'id' | 'accessedAt'>): Citation {
   return {
@@ -426,6 +490,14 @@ export async function resolvePlaceByQuery(query: string, origin?: Coordinates) {
     throw new Error('Google Places API is not configured');
   }
 
+  const cacheKey = `${query.trim().toLowerCase()}::${makeCoordinateKey(origin)}`;
+  const cached = readCache(placeResolutionCache, cacheKey);
+  if (typeof cached !== 'undefined') {
+    return cached;
+  }
+
+  guardPlacesRateLimit();
+
   const requestBody: Record<string, unknown> = {
     textQuery: query,
     maxResultCount: 1,
@@ -441,19 +513,27 @@ export async function resolvePlaceByQuery(query: string, origin?: Coordinates) {
     };
   }
 
-  const data = await fetchJson<any>('https://places.googleapis.com/v1/places:searchText', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': env.googleMapsApiKey,
-      'X-Goog-FieldMask': PLACE_TEXT_MASK,
-    },
-    body: JSON.stringify(requestBody),
-  });
+  try {
+    const data = await fetchJson<any>('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': env.googleMapsApiKey,
+        'X-Goog-FieldMask': PLACE_TEXT_MASK,
+      },
+      body: JSON.stringify(requestBody),
+    });
 
-  const first = data.places?.[0];
-  if (!first) return null;
-  return mapGooglePlace(first, origin);
+    const first = data.places?.[0];
+    if (!first) {
+      return writeCache(placeResolutionCache, cacheKey, null);
+    }
+    const mapped = await mapGooglePlace(first, origin);
+    return writeCache(placeResolutionCache, cacheKey, mapped);
+  } catch (error) {
+    notePlacesRateLimit(error);
+    throw error;
+  }
 }
 
 export async function fetchPlaceDetails(placeId: string, origin?: Coordinates): Promise<PlaceDetails | null> {
@@ -461,32 +541,45 @@ export async function fetchPlaceDetails(placeId: string, origin?: Coordinates): 
     throw new Error('Google Places API is not configured');
   }
 
-  const place = await fetchJson<any>(`https://places.googleapis.com/v1/places/${placeId}`, {
-    headers: {
-      'X-Goog-Api-Key': env.googleMapsApiKey,
-      'X-Goog-FieldMask': PLACE_DETAILS_MASK,
-    },
-  });
+  const cacheKey = `${placeId}::${makeCoordinateKey(origin)}`;
+  const cached = readCache(placeDetailsCache, cacheKey);
+  if (typeof cached !== 'undefined') {
+    return cached;
+  }
 
-  const summary = await mapGooglePlace(place, origin);
-  const knowledge = await fetchKnowledge(summary.name);
-  const facts = knowledge.facts.slice(0, 5);
-  const citations = knowledge.citations;
+  guardPlacesRateLimit();
 
-  return {
-    ...summary,
-    description: knowledge.summary || summary.summary,
-    audioSummary: knowledge.summary || summary.summary,
-    facts,
-    didYouKnow: facts[0],
-    verifiedFacts: facts,
-    inferredClaims: [],
-    reconstructedClaims: [],
-    citations,
-    grounding: buildGrounding(citations, facts, []),
-    followUpSuggestions: ['Why is it important?', 'Show nearby places', 'Guide me there'],
-    historicalAssets: [],
-  };
+  try {
+    const place = await fetchJson<any>(`https://places.googleapis.com/v1/places/${placeId}`, {
+      headers: {
+        'X-Goog-Api-Key': env.googleMapsApiKey,
+        'X-Goog-FieldMask': PLACE_DETAILS_MASK,
+      },
+    });
+
+    const summary = await mapGooglePlace(place, origin);
+    const knowledge = await fetchKnowledge(summary.name);
+    const facts = knowledge.facts.slice(0, 5);
+    const citations = knowledge.citations;
+
+    return writeCache(placeDetailsCache, cacheKey, {
+      ...summary,
+      description: knowledge.summary || summary.summary,
+      audioSummary: knowledge.summary || summary.summary,
+      facts,
+      didYouKnow: facts[0],
+      verifiedFacts: facts,
+      inferredClaims: [],
+      reconstructedClaims: [],
+      citations,
+      grounding: buildGrounding(citations, facts, []),
+      followUpSuggestions: ['Why is it important?', 'Show nearby places', 'Guide me there'],
+      historicalAssets: [],
+    });
+  } catch (error) {
+    notePlacesRateLimit(error);
+    throw error;
+  }
 }
 
 export async function fetchNearbyPlaces(origin: Coordinates) {
@@ -494,28 +587,42 @@ export async function fetchNearbyPlaces(origin: Coordinates) {
     throw new Error('Google Places API is not configured');
   }
 
-  const data = await fetchJson<any>('https://places.googleapis.com/v1/places:searchNearby', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': env.googleMapsApiKey,
-      'X-Goog-FieldMask': PLACE_TEXT_MASK,
-    },
-    body: JSON.stringify({
-      includedTypes: ['tourist_attraction', 'museum', 'historical_landmark'],
-      maxResultCount: 5,
-      locationRestriction: {
-        circle: {
-          center: { latitude: origin.lat, longitude: origin.lng },
-          radius: 5_000,
-        },
-      },
-      languageCode: 'en',
-    }),
-  });
+  const cacheKey = `${roundCoordinate(origin.lat, 3)}:${roundCoordinate(origin.lng, 3)}`;
+  const cached = readCache(nearbyPlacesCache, cacheKey);
+  if (typeof cached !== 'undefined') {
+    return cached;
+  }
 
-  const places = data.places || [];
-  return Promise.all(places.map((place: any) => mapGooglePlace(place, origin)));
+  guardPlacesRateLimit();
+
+  try {
+    const data = await fetchJson<any>('https://places.googleapis.com/v1/places:searchNearby', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': env.googleMapsApiKey,
+        'X-Goog-FieldMask': PLACE_TEXT_MASK,
+      },
+      body: JSON.stringify({
+        includedTypes: ['tourist_attraction', 'museum', 'historical_landmark'],
+        maxResultCount: 5,
+        locationRestriction: {
+          circle: {
+            center: { latitude: origin.lat, longitude: origin.lng },
+            radius: 5_000,
+          },
+        },
+        languageCode: 'en',
+      }),
+    });
+
+    const places = data.places || [];
+    const mapped = await Promise.all(places.map((place: any) => mapGooglePlace(place, origin)));
+    return writeCache(nearbyPlacesCache, cacheKey, mapped);
+  } catch (error) {
+    notePlacesRateLimit(error);
+    throw error;
+  }
 }
 
 export async function explainScene(params: {
@@ -554,14 +661,49 @@ User question: ${params.query || 'What place is this?'}
   });
 
   const parsed = JSON.parse(stripMarkdownJson(response.text));
-  const resolved = await resolvePlaceByQuery(parsed.name, params.origin);
-  if (!resolved?.providerPlaceId) {
-    throw new Error('Unable to resolve detected place to Google Places');
-  }
+  let details: PlaceDetails | null = null;
 
-  const details = await fetchPlaceDetails(resolved.providerPlaceId, params.origin);
-  if (!details) {
-    throw new Error('Unable to load place details');
+  try {
+    const resolved = await resolvePlaceByQuery(parsed.name, params.origin);
+    if (!resolved?.providerPlaceId) {
+      throw new Error('Unable to resolve detected place to Google Places');
+    }
+
+    details = await fetchPlaceDetails(resolved.providerPlaceId, params.origin);
+    if (!details) {
+      throw new Error('Unable to load place details');
+    }
+  } catch (error) {
+    if (!isPlacesRateLimitError(error)) {
+      throw error;
+    }
+
+    const verifiedFacts = Array.isArray(parsed.verifiedFacts)
+      ? parsed.verifiedFacts.filter((fact: unknown): fact is string => typeof fact === 'string').slice(0, 6)
+      : [];
+    const inferredClaims = Array.isArray(parsed.inferredClaims)
+      ? parsed.inferredClaims.filter((claim: unknown): claim is string => typeof claim === 'string')
+      : ['Google Places is temporarily rate-limited, so this identification is vision-only.'];
+
+    return {
+      id: crypto.randomUUID(),
+      name: parsed.name || 'Current scene',
+      category: parsed.category || 'Scene',
+      summary: parsed.summary || 'LensIQ identified this scene from the live camera view.',
+      description: parsed.summary || 'LensIQ identified this scene from the live camera view.',
+      audioSummary: parsed.summary || 'LensIQ identified this scene from the live camera view.',
+      coordinates: params.origin || { lat: 0, lng: 0 },
+      facts: verifiedFacts,
+      didYouKnow: verifiedFacts[0],
+      verifiedFacts,
+      inferredClaims,
+      reconstructedClaims: [],
+      citations: [],
+      followUpSuggestions:
+        parsed.followUpSuggestions?.length ? parsed.followUpSuggestions : ['Show nearby places', 'Time travel this', 'Why is it important?'],
+      grounding: buildGrounding([], verifiedFacts, inferredClaims),
+      historicalAssets: [],
+    };
   }
 
   const verifiedFacts = Array.from(new Set([...(parsed.verifiedFacts || []), ...details.verifiedFacts])).slice(0, 6);
@@ -628,6 +770,9 @@ export async function reconstructHistoricalView(params: {
             .join('; ')}.`,
         },
       ],
+    },
+    config: {
+      responseModalities: [Modality.TEXT, Modality.IMAGE],
     },
   });
 
@@ -700,6 +845,7 @@ export async function generateImageFromPrompt(prompt: string, size: '1K' | '2K' 
     model: IMAGE_MODEL,
     contents: prompt,
     config: {
+      responseModalities: [Modality.TEXT, Modality.IMAGE],
       imageConfig: {
         aspectRatio: '1:1',
         imageSize: size,

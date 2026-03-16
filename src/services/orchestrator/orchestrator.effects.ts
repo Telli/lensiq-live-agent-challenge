@@ -555,7 +555,6 @@ async function requestTimeTravel(
       ? 'place-led'
       : 'scene-led';
 
-  dispatch({ type: 'TIME_TRAVEL_REQUESTED' });
   dispatch({ type: 'TIME_TRAVEL_SCENE_INFERENCE_STARTED', mode });
 
   if (!state.latestFrame?.data && !state.activePlace) {
@@ -800,15 +799,7 @@ export async function runOrchestratorEffects({
       }
 
       if (event.mode === 'time-travel') {
-        try {
-          await requestTimeTravel(getState(), dispatch, context);
-        } catch (error) {
-          dispatchTimeTravelFailure(
-            dispatch,
-            error,
-            'LensIQ could not reconstruct this scene yet.',
-          );
-        }
+        dispatch({ type: 'TIME_TRAVEL_REQUESTED' });
       }
       return;
     }

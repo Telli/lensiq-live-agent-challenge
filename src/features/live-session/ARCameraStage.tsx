@@ -129,7 +129,7 @@ export function ARCameraStage({
             hasVisual: Boolean(step.overlay?.imageUrl || step.asset?.imageUrl),
             statusLabel:
               timeTravel?.status === 'loading' && timeTravel?.selectedEra === step.id
-                ? 'reconstructing'
+                ? 'preparing'
                 : step.overlay?.imageUrl || step.asset?.imageUrl
                   ? 'visual ready'
                   : 'summary ready',

@@ -3,6 +3,8 @@ import { ApiRequestError } from '../api/client';
 
 let rateLimitUntilMs = 0;
 let rateLimitNote: string | null = null;
+const generationCache = new Map<string, string | null>();
+const inFlightGenerations = new Map<string, Promise<string | null>>();
 
 function parseRetryDelayMs(message: string) {
   const match = message.match(/retry in\s+([\d.]+)s/i);
@@ -32,22 +34,41 @@ export const genMediaToolAdapter = {
     return rateLimitNote;
   },
   async generateHistoricalScene(prompt: string) {
+    const cached = generationCache.get(prompt);
+    if (typeof cached !== 'undefined') {
+      return cached;
+    }
+
     if (Date.now() < rateLimitUntilMs) {
       return null;
     }
 
-    try {
-      return await aiService.generateImage(prompt, '2K');
-    } catch (error) {
-      if (isRateLimitError(error)) {
-        const delayMs = parseRetryDelayMs(
-          error instanceof Error ? error.message : 'Retry in 60s.',
-        );
-        rateLimitUntilMs = Date.now() + delayMs;
-        const retrySeconds = Math.ceil(delayMs / 1000);
-        rateLimitNote = `Historical image generation is temporarily rate-limited. LensIQ will stay in source-led summary mode for about ${retrySeconds}s.`;
-      }
-      return null;
+    const existing = inFlightGenerations.get(prompt);
+    if (existing) {
+      return existing;
     }
+
+    const request = (async () => {
+      try {
+        const imageUrl = await aiService.generateImage(prompt, '1K');
+        generationCache.set(prompt, imageUrl);
+        return imageUrl;
+      } catch (error) {
+        if (isRateLimitError(error)) {
+          const delayMs = parseRetryDelayMs(
+            error instanceof Error ? error.message : 'Retry in 60s.',
+          );
+          rateLimitUntilMs = Date.now() + delayMs;
+          const retrySeconds = Math.ceil(delayMs / 1000);
+          rateLimitNote = `Historical image generation is temporarily rate-limited. LensIQ will stay in source-led summary mode for about ${retrySeconds}s.`;
+        }
+        return null;
+      } finally {
+        inFlightGenerations.delete(prompt);
+      }
+    })();
+
+    inFlightGenerations.set(prompt, request);
+    return request;
   },
 };

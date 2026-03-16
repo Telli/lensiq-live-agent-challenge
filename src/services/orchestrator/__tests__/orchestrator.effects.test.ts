@@ -143,6 +143,42 @@ describe('runOrchestratorEffects time travel', () => {
     expect(dispatched.some((event) => event.type === 'TIME_TRAVEL_OVERLAY_READY')).toBe(true);
   });
 
+  it('mode change to time-travel dispatches a single request event instead of recursively requesting', async () => {
+    const dispatch = vi.fn((event: OrchestratorEvent) => {
+      dispatched.push(event);
+    });
+
+    await runOrchestratorEffects({
+      event: { type: 'MODE_CHANGED', mode: 'time-travel' },
+      state,
+      getState: () => state,
+      dispatch,
+      context: {
+        capabilities: {
+          database: false,
+          gemini: true,
+          places: true,
+          routes: true,
+          live: false,
+          historical: true,
+          media: false,
+          auth: false,
+          storage: false,
+          limitations: [],
+        },
+        live: {
+          connect: async () => {},
+          disconnect: () => {},
+          sendTextCommand: () => {},
+          interrupt: () => {},
+          connectionState: 'idle',
+        },
+      },
+    });
+
+    expect(dispatched).toEqual([{ type: 'TIME_TRAVEL_REQUESTED' }]);
+  });
+
   it('falls back to a ready summary state when overlay hydration fails', async () => {
     vi.mocked(sceneReconstructionService.hydrateEra).mockRejectedValueOnce(
       new Error('hydrate failed'),

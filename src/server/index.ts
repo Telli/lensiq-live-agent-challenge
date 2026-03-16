@@ -60,6 +60,62 @@ function summarizeTitle(transcript: TranscriptMessage[], places: PlaceSummary[])
   return firstUser?.text.slice(0, 60) || 'LensIQ session';
 }
 
+function inferErrorStatus(error: unknown) {
+  const candidate = error as
+    | { status?: number; cause?: { status?: number } }
+    | undefined;
+  if (typeof candidate?.status === 'number') {
+    return candidate.status;
+  }
+  if (typeof candidate?.cause?.status === 'number') {
+    return candidate.cause.status;
+  }
+
+  const message = error instanceof Error ? error.message : String(error || '');
+  if (/(429|rate limit|quota|resource_exhausted|maximum limit)/i.test(message)) {
+    return 429;
+  }
+  if (/(503|service unavailable|unavailable)/i.test(message)) {
+    return 503;
+  }
+
+  return 500;
+}
+
+function parseRetryAfterSeconds(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  const retryMatch = message.match(/retry in\s+([\d.]+)s/i);
+  if (!retryMatch) {
+    return null;
+  }
+  return Math.max(15, Math.ceil(Number(retryMatch[1])));
+}
+
+function sendPublicApiError(
+  res: express.Response,
+  error: unknown,
+  fallbackMessage: string,
+  rateLimitMessage: string,
+) {
+  const status = inferErrorStatus(error);
+  const retryAfterSeconds = status === 429 ? parseRetryAfterSeconds(error) : null;
+  const payload = {
+    error:
+      status === 429
+        ? rateLimitMessage
+        : status === 503
+          ? `${fallbackMessage} The provider is temporarily unavailable.`
+          : fallbackMessage,
+    ...(retryAfterSeconds ? { retryAfterSeconds } : {}),
+  };
+
+  if (retryAfterSeconds) {
+    res.setHeader('Retry-After', String(retryAfterSeconds));
+  }
+
+  res.status(status).json(payload);
+}
+
 const FEEDBACK_ISSUE_TYPES: PlaceFeedbackIssueType[] = [
   'wrong_place',
   'bad_fact',
@@ -95,7 +151,12 @@ app.post('/api/explore/explain', async (req, res) => {
     res.json(result);
   } catch (error: any) {
     console.error('Explain request failed', error);
-    res.status(500).json({ error: error.message || 'Failed to explain scene' });
+    sendPublicApiError(
+      res,
+      error,
+      'LensIQ could not explain this scene right now.',
+      'LensIQ hit a Gemini rate limit for scene analysis. Try again shortly.',
+    );
   }
 });
 
@@ -110,7 +171,13 @@ app.post('/api/places/resolve', async (req, res) => {
       : null;
     res.json(details || place);
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to resolve place' });
+    console.error('Place resolution failed', error);
+    sendPublicApiError(
+      res,
+      error,
+      'LensIQ could not resolve that place right now.',
+      'Google Places is temporarily rate-limited. Try again shortly.',
+    );
   }
 });
 
@@ -126,7 +193,12 @@ app.get('/api/places/nearby', async (req, res) => {
     res.json(nearby);
   } catch (error: any) {
     console.error('Nearby places request failed', error);
-    res.status(500).json({ error: error.message || 'Failed to load nearby places' });
+    sendPublicApiError(
+      res,
+      error,
+      'LensIQ could not load nearby places right now.',
+      'Google Places is temporarily rate-limited. Try again shortly.',
+    );
   }
 });
 
@@ -143,7 +215,13 @@ app.get('/api/places/:id', async (req, res) => {
     }
     res.json(place);
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to load place details' });
+    console.error('Place details request failed', error);
+    sendPublicApiError(
+      res,
+      error,
+      'LensIQ could not load place details right now.',
+      'Google Places is temporarily rate-limited. Try again shortly.',
+    );
   }
 });
 
@@ -163,7 +241,13 @@ app.get('/api/places/:id/history', async (req, res) => {
       canReconstruct: history.citations.length > 0,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to load place history' });
+    console.error('Place history request failed', error);
+    sendPublicApiError(
+      res,
+      error,
+      'LensIQ could not load place history right now.',
+      'Google Places is temporarily rate-limited. Try again shortly.',
+    );
   }
 });
 
@@ -181,9 +265,13 @@ app.post('/api/places/:id/history/reconstruct', async (req, res) => {
     });
     res.json(asset);
   } catch (error: any) {
-    res
-      .status(typeof error?.status === 'number' ? error.status : 500)
-      .json({ error: error.message || 'Failed to reconstruct historical view' });
+    console.error('Historical reconstruction failed', error);
+    sendPublicApiError(
+      res,
+      error,
+      'LensIQ could not render a historical overlay right now.',
+      'Historical image generation is temporarily rate-limited. LensIQ will stay in summary mode for now.',
+    );
   }
 });
 
@@ -198,7 +286,13 @@ app.post('/api/chat', async (req, res) => {
     });
     res.json({ text: response });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to complete chat request' });
+    console.error('Chat request failed', error);
+    sendPublicApiError(
+      res,
+      error,
+      'LensIQ could not complete the chat request right now.',
+      'LensIQ hit a Gemini rate limit. Keep using live voice or try again shortly.',
+    );
   }
 });
 
@@ -208,9 +302,12 @@ app.post('/api/media/image', async (req, res) => {
     res.json({ url });
   } catch (error: any) {
     console.error('Image generation failed', error);
-    res
-      .status(typeof error?.status === 'number' ? error.status : 500)
-      .json({ error: error.message || 'Failed to generate image' });
+    sendPublicApiError(
+      res,
+      error,
+      'LensIQ could not generate an image right now.',
+      'Image generation is temporarily rate-limited. Try again shortly.',
+    );
   }
 });
 
@@ -220,7 +317,12 @@ app.post('/api/media/video', async (req, res) => {
     res.json({ url });
   } catch (error: any) {
     console.error('Video generation failed', error);
-    res.status(500).json({ error: error.message || 'Failed to generate video' });
+    sendPublicApiError(
+      res,
+      error,
+      'LensIQ could not generate a video right now.',
+      'Video generation is temporarily rate-limited. Try again shortly.',
+    );
   }
 });
 
@@ -230,7 +332,12 @@ app.post('/api/media/video-analysis', async (req, res) => {
     res.json({ text });
   } catch (error: any) {
     console.error('Video analysis failed', error);
-    res.status(500).json({ error: error.message || 'Failed to analyze video' });
+    sendPublicApiError(
+      res,
+      error,
+      'LensIQ could not analyze the video right now.',
+      'LensIQ hit a Gemini rate limit for video analysis. Try again shortly.',
+    );
   }
 });
 

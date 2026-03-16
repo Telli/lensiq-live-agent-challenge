@@ -123,7 +123,7 @@ export function orchestratorReducer(
         error: null,
         uiStatusBanner:
           event.mode === 'time-travel'
-            ? 'LensIQ is reconstructing this view through time…'
+            ? 'LensIQ is preparing a time-travel view…'
             : event.mode === 'nearby'
               ? 'LensIQ is mapping what is around you…'
               : null,
@@ -232,7 +232,7 @@ export function orchestratorReducer(
           status: 'loading',
           error: null,
         },
-        uiStatusBanner: 'LensIQ is reconstructing this view through time…',
+        uiStatusBanner: 'LensIQ is preparing a time-travel view…',
         error: null,
       };
     case 'TIME_TRAVEL_SCENE_INFERENCE_STARTED':
@@ -246,7 +246,7 @@ export function orchestratorReducer(
           sceneSummary:
             'Point the camera at a landmark, room, object, or setup. LensIQ will reconstruct how this scene looked in the past.',
         },
-        uiStatusBanner: 'LensIQ is reconstructing this view through time…',
+        uiStatusBanner: 'LensIQ is analyzing the current scene through time…',
       };
     case 'TIME_TRAVEL_SCENE_INFERENCE_READY':
       return {
@@ -279,7 +279,7 @@ export function orchestratorReducer(
         grounding: event.payload.grounding || state.grounding,
         uiStatusBanner:
           event.payload.status === 'loading'
-            ? 'LensIQ is reconstructing this view through time…'
+            ? 'LensIQ is preparing the selected era…'
             : null,
       };
     case 'TIME_TRAVEL_ERA_CHANGED':

@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Camera as CameraIcon, Mic, Sparkles, X } from 'lucide-react';
+import { Camera as CameraIcon, Sparkles, X } from 'lucide-react';
 import { Button } from '@/src/components/ui/Button';
 import { Badge } from '@/src/components/ui/Badge';
 import { TabSwitcher } from '@/src/components/layout/TabSwitcher';
@@ -19,7 +19,6 @@ const ChatSheet = lazy(() => import('@/src/components/ui/ChatSheet').then((modul
 const GroundingSheet = lazy(() =>
   import('@/src/components/grounding/GroundingSheet').then((module) => ({ default: module.GroundingSheet })),
 );
-const LabView = lazy(() => import('@/src/features/tools/LabView').then((module) => ({ default: module.LabView })));
 const PlaceDetailsSheet = lazy(() =>
   import('@/src/components/explore/PlaceDetailsSheet').then((module) => ({ default: module.PlaceDetailsSheet })),
 );
@@ -41,6 +40,7 @@ export function ExploreScreen() {
   const [showResponse, setShowResponse] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [showTranscriptReview, setShowTranscriptReview] = useState(false);
+  const [showTimeTravelPanel, setShowTimeTravelPanel] = useState(false);
   const [showGrounding, setShowGrounding] = useState(false);
   const [showReportIssue, setShowReportIssue] = useState(false);
   const [chatQuery, setChatQuery] = useState('');
@@ -58,9 +58,8 @@ export function ExploreScreen() {
       { id: 'explain', label: 'Explain' },
       { id: 'time-travel', label: 'Time Travel' },
       { id: 'nearby', label: 'Nearby' },
-      ...(capabilities?.media ? [{ id: 'lab', label: 'Lab' }] : []),
     ],
-    [capabilities?.media],
+    [],
   );
 
   const isPlaceSaved = director.activePlace
@@ -90,6 +89,12 @@ export function ExploreScreen() {
       setShowTranscriptReview(false);
     }
   }, [showTranscriptReview, transcriptAvailable]);
+
+  useEffect(() => {
+    if (director.mode !== 'time-travel' && showTimeTravelPanel) {
+      setShowTimeTravelPanel(false);
+    }
+  }, [director.mode, showTimeTravelPanel]);
 
   const handlePrimaryVoiceAction = async () => {
     if (director.voiceState === 'connecting') {
@@ -195,48 +200,7 @@ export function ExploreScreen() {
 
       <div className="relative z-10 flex flex-1 flex-col items-center justify-center p-6">
         <AnimatePresence>
-          {!showChat && ['connecting', 'listening', 'thinking', 'speaking', 'interrupted'].includes(director.voiceState) && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              className="absolute top-1/4 flex flex-col items-center"
-            >
-              <div className="relative flex h-24 w-24 items-center justify-center">
-                <motion.div
-                  animate={{
-                    scale:
-                      director.voiceState === 'speaking'
-                        ? [1, 1.2, 1]
-                        : director.voiceState === 'listening'
-                          ? [1, 1.45, 1]
-                          : 1,
-                    opacity: director.voiceState === 'thinking' ? [0.5, 1, 0.5] : 1,
-                  }}
-                  transition={{ repeat: Infinity, duration: 1.5 }}
-                  className="absolute inset-0 rounded-full bg-white/20 blur-xl"
-                />
-                <div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/50 bg-white shadow-[0_0_40px_rgba(255,255,255,0.3)]">
-                  <Mic className="h-8 w-8 text-black" />
-                </div>
-              </div>
-              <span className="mt-4 rounded-full bg-black/40 px-3 py-1 text-sm font-medium text-white backdrop-blur-md">
-                {director.voiceState === 'speaking'
-                  ? 'Speaking…'
-                  : director.voiceState === 'thinking'
-                    ? 'Thinking…'
-                    : director.voiceState === 'interrupted'
-                      ? 'Interrupted…'
-                      : director.voiceState === 'connecting'
-                        ? 'Connecting…'
-                        : 'Listening…'}
-              </span>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {!showChat && director.mode === 'time-travel' && (
+          {!showChat && director.mode === 'time-travel' && showTimeTravelPanel && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -262,7 +226,12 @@ export function ExploreScreen() {
                 {director.timeTravel?.status === 'loading' ? (
                   <div className="flex h-32 flex-col items-center justify-center">
                     <div className="mb-4 h-8 w-8 animate-spin rounded-full border-4 border-white border-t-transparent" />
-                    <p className="font-medium text-zinc-300">Reconstructing this scene…</p>
+                    <p className="font-medium text-zinc-300">Preparing the timeline…</p>
+                    {director.timeTravel?.sceneSummary ? (
+                      <p className="mt-2 max-w-sm text-center text-sm text-zinc-500">
+                        {director.timeTravel.sceneSummary}
+                      </p>
+                    ) : null}
                   </div>
                 ) : director.timeTravel?.status === 'ready' ? (
                   <TimeTravelStateCard timeTravel={director.timeTravel} />
@@ -372,13 +341,6 @@ export function ExploreScreen() {
           )}
         </AnimatePresence>
 
-        <AnimatePresence>
-          {!showChat && director.mode === 'lab' && capabilities?.media && (
-            <Suspense fallback={<SheetFallback />}>
-              <LabView />
-            </Suspense>
-          )}
-        </AnimatePresence>
       </div>
 
       {showTranscriptDock ? (
@@ -415,8 +377,24 @@ export function ExploreScreen() {
           onToggleTranscript={() =>
             setShowTranscriptReview((current) => !current)
           }
-          showExpandDetails={Boolean(director.activePlace && director.mode === 'explain' && !showResponse)}
-          onExpandDetails={() => setShowResponse(true)}
+          showExpandDetails={Boolean(
+            (director.activePlace && director.mode === 'explain' && !showResponse) ||
+              (director.mode === 'time-travel' && director.timeTravel),
+          )}
+          expandDetailsLabel={
+            director.mode === 'time-travel'
+              ? showTimeTravelPanel
+                ? 'Hide time travel'
+                : 'View time travel'
+              : 'Place details'
+          }
+          onExpandDetails={() => {
+            if (director.mode === 'time-travel') {
+              setShowTimeTravelPanel((current) => !current);
+              return;
+            }
+            setShowResponse(true);
+          }}
           onSuggestionClick={director.handleQuickAction}
         />
       ) : null}

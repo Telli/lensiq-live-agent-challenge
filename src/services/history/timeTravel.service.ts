@@ -18,6 +18,8 @@ export interface HistoryResponse {
 
 let reconstructionRateLimitUntilMs = 0;
 let reconstructionRateLimitNote: string | null = null;
+const reconstructionCache = new Map<string, HistoricalAsset>();
+const inFlightReconstructions = new Map<string, Promise<HistoricalAsset>>();
 
 function parseRetryDelayMs(message: string) {
   const match = message.match(/retry in\s+([\d.]+)s/i);
@@ -57,6 +59,12 @@ export const timeTravelService = {
   },
 
   async generateHistoricalImage(placeId: string, imageBase64: string) {
+    const cacheKey = `${placeId}:${imageBase64.length}:${imageBase64.slice(0, 96)}`;
+    const cached = reconstructionCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     if (Date.now() < reconstructionRateLimitUntilMs) {
       throw new Error(
         reconstructionRateLimitNote ||
@@ -64,24 +72,38 @@ export const timeTravelService = {
       );
     }
 
-    try {
-      return await apiRequest<HistoricalAsset>(`/api/places/${placeId}/history/reconstruct`, {
+    const existing = inFlightReconstructions.get(cacheKey);
+    if (existing) {
+      return existing;
+    }
+
+    const request = apiRequest<HistoricalAsset>(`/api/places/${placeId}/history/reconstruct`, {
         method: 'POST',
         body: JSON.stringify({
           imageBase64,
         }),
-      });
-    } catch (error) {
-      if (isRateLimitError(error)) {
-        const delayMs = parseRetryDelayMs(
-          error instanceof Error ? error.message : 'Retry in 60s.',
-        );
-        reconstructionRateLimitUntilMs = Date.now() + delayMs;
-        const retrySeconds = Math.ceil(delayMs / 1000);
-        reconstructionRateLimitNote = `Landmark reconstruction is temporarily rate-limited. LensIQ will stay in source-led summary mode for about ${retrySeconds}s.`;
-      }
-      throw error;
-    }
+      })
+      .then((asset) => {
+        reconstructionCache.set(cacheKey, asset);
+        return asset;
+      })
+      .catch((error) => {
+        if (isRateLimitError(error)) {
+          const delayMs = parseRetryDelayMs(
+            error instanceof Error ? error.message : 'Retry in 60s.',
+          );
+          reconstructionRateLimitUntilMs = Date.now() + delayMs;
+          const retrySeconds = Math.ceil(delayMs / 1000);
+          reconstructionRateLimitNote = `Landmark reconstruction is temporarily rate-limited. LensIQ will stay in source-led summary mode for about ${retrySeconds}s.`;
+        }
+        throw error;
+      })
+      .finally(() => {
+        inFlightReconstructions.delete(cacheKey);
+    });
+
+    inFlightReconstructions.set(cacheKey, request);
+    return request;
   },
 
   async resolvePlace(query: string, coordinates?: Coordinates) {

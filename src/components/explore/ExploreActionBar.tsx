@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mic, ChevronUp, MessageSquareMore } from 'lucide-react';
+import { Mic, MessageSquareMore } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Chip } from '../ui/Chip';
 
@@ -14,6 +14,7 @@ interface ExploreActionBarProps {
   onToggleTranscript?: () => void;
   showExpandDetails?: boolean;
   onExpandDetails?: () => void;
+  expandDetailsLabel?: string;
   onSuggestionClick?: (action: 'explain' | 'time-travel' | 'guide' | 'nearby') => void;
 }
 
@@ -28,6 +29,7 @@ export function ExploreActionBar({
   onToggleTranscript,
   showExpandDetails,
   onExpandDetails,
+  expandDetailsLabel,
   onSuggestionClick
 }: ExploreActionBarProps) {
   const statusHeadline = !voiceAvailable
@@ -111,8 +113,13 @@ export function ExploreActionBar({
               <MessageSquareMore className="w-5 h-5" />
             </Button>
             {showExpandDetails ? (
-              <Button variant="ghost" size="icon" className="rounded-full" onClick={onExpandDetails}>
-                <ChevronUp className="w-6 h-6 text-zinc-400" />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="rounded-full px-3 text-xs"
+                onClick={onExpandDetails}
+              >
+                {expandDetailsLabel || 'View details'}
               </Button>
             ) : null}
           </div>

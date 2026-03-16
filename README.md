@@ -40,7 +40,7 @@ flowchart LR
 
 - `Frontend`: React 19, Vite 6, Tailwind CSS, motion, React Router
 - `Backend`: Express, WebSocket (`ws`), TypeScript
-- `AI`: Gemini Live, Gemini Flash/Pro, Gemini image generation, Veo video generation
+- `AI`: Gemini Live native audio, Gemini 2.5 Flash for explain/chat/reasoning, Gemini image generation, Veo video generation
 - `Orchestration`: centralized multimodal reducer/effects loop for Explore
 - `Data`: Google Places API, Google Routes API, Wikidata, Wikipedia, Library of Congress, Internet Archive
 - `Persistence`: Postgres
@@ -88,6 +88,16 @@ GCS_BUCKET=""
 GCS_PROJECT_ID=""
 
 VITE_ENABLE_CREATIVE_TOOLS="true"
+```
+
+Optional model overrides:
+
+```env
+GEMINI_CHAT_MODEL="gemini-2.5-flash"
+GEMINI_REASONING_MODEL="gemini-2.5-flash"
+GEMINI_LIVE_MODEL="gemini-2.5-flash-native-audio-preview-12-2025"
+GEMINI_IMAGE_MODEL="gemini-2.5-flash-image"
+GEMINI_VIDEO_MODEL="veo-3.1-fast-generate-preview"
 ```
 
 ### Run
