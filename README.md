@@ -201,6 +201,86 @@ npx vitest run
 npm run build
 ```
 
+## Reproducible Testing For Judges
+
+This repo includes the setup and verification steps judges can use to reproduce the project locally and confirm the main integration points.
+
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Configure environment variables
+
+Copy `.env.example` to `.env` and set at minimum:
+
+- `GEMINI_API_KEY`
+- `GOOGLE_MAPS_API_KEY`
+- `SESSION_SECRET`
+
+Optional but recommended for full capability coverage:
+
+- `DATABASE_URL`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_AUTH_REDIRECT_URI`
+- `GCS_BUCKET`
+- `GCS_PROJECT_ID`
+
+### 3. Start the app
+
+```bash
+npm run dev
+```
+
+Expected local endpoints:
+
+- Frontend: `http://localhost:3000`
+- Backend: `http://localhost:3001`
+- Health check: `http://localhost:3001/api/health`
+- Capability check: `http://localhost:3001/api/capabilities`
+
+### 4. Run automated verification
+
+```bash
+npm run lint
+npx vitest run
+npm run build
+```
+
+Expected result:
+
+- TypeScript validation passes
+- test suite passes
+- production build completes successfully
+
+### 5. Manually test the core submission requirements
+
+1. Open the app in a browser with camera and microphone permissions enabled.
+2. Start a live session from the Explore screen.
+3. Point the camera at a recognizable scene or landmark image.
+4. Ask a spoken question and confirm LensIQ responds with audio.
+5. Interrupt LensIQ mid-response and confirm it stops playback and listens again.
+6. Trigger `Explain` and confirm grounded place/context output appears.
+7. Trigger `Time Travel` and confirm the timeline, overlay state, and source labeling appear.
+8. Open the Cloud deployment references in `docs/deployment-proof.md` and `scripts/deploy-cloud-run.sh` for Google Cloud proof.
+
+### 6. Minimum vs full-feature testing
+
+- With only `GEMINI_API_KEY` and `GOOGLE_MAPS_API_KEY`, judges can validate the primary multimodal flow.
+- With database, OAuth, and storage configured, judges can validate persistence, auth, and asset storage paths as well.
+
+### 7. Cloud reproduction path
+
+To reproduce the hosted architecture on Google Cloud, use:
+
+```bash
+SERVICE_NAME=lensiq REGION=us-central1 PROJECT_ID="$(gcloud config get-value project)" ./scripts/deploy-cloud-run.sh
+```
+
+That path deploys the containerized app to Cloud Run, matching the intended hosted setup for the project.
+
 ## Repo Notes
 
 - Provider keys are backend-owned; the browser does not need a Gemini API key.
